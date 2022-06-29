@@ -1,4 +1,4 @@
-# BGs-nest
+# BGs_nest model
 Repository of a basal ganglia model developed in NEST2.20.2.
 
 It requires to install the NEST extension [bgmodel](https://github.com/marcobiasizzo/bgmodel).
