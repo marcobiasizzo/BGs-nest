@@ -79,64 +79,68 @@ class manager_class:
         if receptor_true is not None:
             assert receptor_type == receptor_true, 'Receptor number different from csv declaration'
 
-        nest.CopyModel(template, f'{connection}_syn', params)
-
-        # connect depending on the input population/generator
-        if input_type == 'poisson' or input_type == 'dynamic_poisson':  # one poisson generator connected to all of them
-            conn = nest.Connect(pre_pop, post_pop, {'rule': 'all_to_all', "multapses": False, "autapses": False},
-                                syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
-        elif input_type == 'spike_generator':
-            assert len(pre_pop) <= len(post_pop), 'Input generators should be less or equal to target neurons'
-            if len(pre_pop) == len(post_pop):   # if we have 1 spike generator for each target neuron
-                conn = nest.Connect(pre_pop, post_pop, {'rule': 'one_to_one', "multapses": False, "autapses": False},
+        if input_type != 'second_poisson':
+            nest.CopyModel(template, f'{connection}_syn', params)
+            # connect depending on the input population/generator
+            if input_type == 'poisson' or input_type == 'dynamic_poisson':  # one poisson generator connected to all of them
+                conn = nest.Connect(pre_pop, post_pop, {'rule': 'all_to_all', "multapses": False, "autapses": False},
                                     syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
-            else:   # some neurons will receive the same input
-                post_pop = list(post_pop)
-                random.shuffle(post_pop)
-                n_s_g = len(pre_pop)
-                n_targets = len(post_pop)/n_s_g
-                for i in range(n_s_g - 1):
-                    post = post_pop[round(i*n_targets):round((i+1)*n_targets)]
-                    # connect one source neuron to a group of target neurons
-                    conn = nest.Connect([pre_pop[i]], post,
+            elif input_type == 'spike_generator':
+                assert len(pre_pop) <= len(post_pop), 'Input generators should be less or equal to target neurons'
+                if len(pre_pop) == len(post_pop):   # if we have 1 spike generator for each target neuron
+                    conn = nest.Connect(pre_pop, post_pop, {'rule': 'one_to_one', "multapses": False, "autapses": False},
+                                        syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
+                else:   # some neurons will receive the same input
+                    post_pop = list(post_pop)
+                    random.shuffle(post_pop)
+                    n_s_g = len(pre_pop)
+                    n_targets = len(post_pop)/n_s_g
+                    for i in range(n_s_g - 1):
+                        post = post_pop[round(i*n_targets):round((i+1)*n_targets)]
+                        # connect one source neuron to a group of target neurons
+                        conn = nest.Connect([pre_pop[i]], post,
+                                            {'rule': 'all_to_all', "multapses": False, "autapses": False},
+                                            syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
+                    post = post_pop[round((n_s_g - 1)*n_targets):]
+                    conn = nest.Connect([pre_pop[n_s_g - 1]], post,
                                         {'rule': 'all_to_all', "multapses": False, "autapses": False},
                                         syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
-                post = post_pop[round((n_s_g - 1)*n_targets):]
-                conn = nest.Connect([pre_pop[n_s_g - 1]], post,
-                                    {'rule': 'all_to_all', "multapses": False, "autapses": False},
+
+            elif input_type == 'parrots':  # for multiple external inputs use parrots neurons
+                conn = nest.Connect(pre_pop, post_pop, {'rule': 'one_to_one', "multapses": False, "autapses": False},
                                     syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
 
-        elif input_type == 'parrots':  # for multiple external inputs use parrots neurons
-            conn = nest.Connect(pre_pop, post_pop, {'rule': 'one_to_one', "multapses": False, "autapses": False},
+            elif input_type == 'neurons':
+                in_deg = round(self.get_csv_value('conn', connection, 'fan_in', int))   # read the indegree from csv
+                weight_dic = {'distribution': 'uniform', 'low': params['weight'] - params['weight'] * 0.5,
+                                                         'high': params['weight'] + params['weight'] * 0.5}
+                if connection == 'GI_FS_gaba':
+                    # only 10% of GPeTI connects to FS
+                    pre = pre_pop[0:int(0.1 * (max(pre_pop) - min(pre_pop)))]  # select the 10% of GI, to connect to FSN
+                    conn = nest.Connect(pre, post_pop,
+                                        {'rule': 'fixed_indegree', 'indegree': in_deg, "multapses": False, "autapses": False},
+                                        syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type,
+                                                  'weight': weight_dic})
+                elif connection == 'FS_M1_gaba' or connection == 'FS_M2_gaba':
+                    # groups of FS could connect to just 540 MSN
+                    conn = restrict_connect_MSN(540, pre_pop, post_pop, nest, in_deg, connection,
+                                                receptor_type, weight_dic)
+                elif connection == 'M1_M1_gaba' or connection == 'M1_M2_gaba' or \
+                        connection == 'M2_M1_gaba' or connection == 'M2_M2_gaba':
+                    # groups of MSN could connect to just 2800 MSN
+                    conn = restrict_connect_MSN(2800, pre_pop, post_pop, nest, in_deg, connection,
+                                                receptor_type, weight_dic)
+                else:   # other connections are free
+                    conn = nest.Connect(pre_pop, post_pop,
+                                        {'rule': 'fixed_indegree', 'indegree': in_deg, "multapses": False, "autapses": False},
+                                        syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type,
+                                                  'weight': weight_dic})
+            else:
+                print('WARNING: input_type connection not found')
+        elif input_type == 'second_poisson':
+            nest.CopyModel(template, f'{connection}_syn_bground', params)
+            conn = nest.Connect(pre_pop, post_pop, {'rule': 'all_to_all', "multapses": False, "autapses": False},
                                 syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type})
-
-        elif input_type == 'neurons':
-            in_deg = round(self.get_csv_value('conn', connection, 'fan_in', int))   # read the indegree from csv
-            weight_dic = {'distribution': 'uniform', 'low': params['weight'] - params['weight'] * 0.5,
-                                                     'high': params['weight'] + params['weight'] * 0.5}
-            if connection == 'GI_FS_gaba':
-                # only 10% of GPeTI connects to FS
-                pre = pre_pop[0:int(0.1 * (max(pre_pop) - min(pre_pop)))]  # select the 10% of GI, to connect to FSN
-                conn = nest.Connect(pre, post_pop,
-                                    {'rule': 'fixed_indegree', 'indegree': in_deg, "multapses": False, "autapses": False},
-                                    syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type,
-                                              'weight': weight_dic})
-            elif connection == 'FS_M1_gaba' or connection == 'FS_M2_gaba':
-                # groups of FS could connect to just 540 MSN
-                conn = restrict_connect_MSN(540, pre_pop, post_pop, nest, in_deg, connection,
-                                            receptor_type, weight_dic)
-            elif connection == 'M1_M1_gaba' or connection == 'M1_M2_gaba' or \
-                    connection == 'M2_M1_gaba' or connection == 'M2_M2_gaba':
-                # groups of MSN could connect to just 2800 MSN
-                conn = restrict_connect_MSN(2800, pre_pop, post_pop, nest, in_deg, connection,
-                                            receptor_type, weight_dic)
-            else:   # other connections are free
-                conn = nest.Connect(pre_pop, post_pop,
-                                    {'rule': 'fixed_indegree', 'indegree': in_deg, "multapses": False, "autapses": False},
-                                    syn_spec={'model': f'{connection}_syn', 'receptor_type': receptor_type,
-                                              'weight': weight_dic})
-        else:
-            print('WARNING: input_type connection not found')
         return conn
 
 
