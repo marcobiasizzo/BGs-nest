@@ -18,3 +18,5 @@ Model replicated from:
 ```
 
 The original Github repository - [mickelindahl/bgmodel](https://github.com/mickelindahl/bgmodel) - contains a model implemented in NEST2.12 (last version).
+
+Model parameters are defined in the default_params.csv file.
