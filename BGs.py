@@ -344,6 +344,7 @@ if __name__ == "__main__":
 
             pop_list = [BGs_class_i.BGs_pops[name] for name in pop_names]
 
+
             # record membrane potential from the first neuron of the population
             vm_list = utils.attach_voltmeter(nest, pop_list, sampling_resolution=0.5, target_neurons=0)
             # record spikes from BGs neurons
