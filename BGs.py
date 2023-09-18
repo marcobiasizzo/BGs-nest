@@ -3,7 +3,8 @@
 """
 
 __author__ = 'marco'
-
+import sys
+sys.path.append('/home/modelling/Desktop/benedetta/BGs_Cereb_nest_PD/')
 from BGs_nest.manager import manager_class
 
 class BGs_class:
@@ -267,3 +268,144 @@ class BGs_class:
                                    receptor_true=rec[aeif_model]['AMPA_2'], input_type='poisson')
         self.mng.create_connection(nest_, stc_syn, ES_pop, SNr_pop, 'ES_SN_ampa',
                                    receptor_true=rec[aeif_model]['AMPA_2'], input_type='poisson')
+
+
+
+if __name__ == "__main__":
+
+
+    import time
+    from marco_nest_utils import utils, visualizer as vsl
+    import os
+    import pickle
+    import numpy as np
+    from pathlib import Path
+
+    # NEST modules
+    import nest
+
+    MODULE_PATH = str(Path.home()) + '/nest/lib/nest/ml_module'
+    nest.Install(MODULE_PATH)  # Import my_BGs module
+
+    PARAMS_DIR = 'BGs_nest/default_params.csv'
+
+
+    # simulation parameters
+    CORES = 24
+    cortical_mode = 'active'
+    in_vitro = False
+    dopa_depl_level = -0.
+    if dopa_depl_level != 0.:
+        dopa_depl = True
+    else:
+        dopa_depl = False
+    N_tot_neurons = 20000
+    sim_time = 3000.0
+    start_time = 1000.  # starting time for histograms data
+    pop_names = ['FSN', 'MSND1', 'MSND2', 'GPeTA', 'GPeTI', 'STN', 'SNr']
+    # pop_names_short = ['FS', 'M1', 'M2', 'GA', 'GI', 'ST', 'SN']    # must have the same order of previous
+
+    load_from_file = False
+
+    nest.ResetKernel()
+    # set number of kernels
+    nest.SetKernelStatus({"total_num_virtual_procs": CORES})
+    # nest.SetKernelStatus({'resolution': 0.1})
+
+    # set saving directory
+    # date_time = datetime.now().strftime("%d%m%Y_%H%M%S")
+    # savings_dir = f'savings/BGs_{cortical_mode}_{int(sim_time)}'  # f'savings/{date_time}'
+    # if in_vitro: savings_dir = savings_dir + '_invitro'
+    # if dopa_depl: savings_dir = savings_dir + '_dopadepl'
+    # print(f'Saving/Loading directory: {savings_dir}')
+    
+    # if __name__ == "__main__":
+    out = []
+    for i in range(10):
+        if not load_from_file:
+            savings_dir = f'savings/BGs_{cortical_mode}_{int(sim_time)}'  # f'savings/{date_time}'
+            if in_vitro: savings_dir = savings_dir + '_invitro'
+            if dopa_depl: savings_dir = savings_dir + '_dopadepl'
+            print(f'Saving/Loading directory: {savings_dir}')
+            savings_dir = savings_dir + f'_trial_{i}'
+            if not load_from_file:
+                if not os.path.exists(savings_dir): os.makedirs(savings_dir)  # create folder if not present
+
+            # set number of kernels
+            nest.ResetKernel()
+            nest.SetKernelStatus({'grng_seed': 100 * i + 1,
+                                'rng_seeds': [100 * i + j for j in range(2,26)],
+                                'local_num_threads': CORES, 'total_num_virtual_procs': CORES})
+            nest.set_verbosity("M_ERROR")  # reduce plotted info
+
+            # create an instance of the BGs populations and inputs
+            BGs_class_i = BGs_class(nest, N_tot_neurons, cortical_mode, parameters_file_name=PARAMS_DIR,
+                                dopa_depl=dopa_depl_level, cortex_type='poisson', in_vitro=in_vitro)
+
+            pop_list = [BGs_class_i.BGs_pops[name] for name in pop_names]
+
+
+            # record membrane potential from the first neuron of the population
+            vm_list = utils.attach_voltmeter(nest, pop_list, sampling_resolution=0.5, target_neurons=0)
+            # record spikes from BGs neurons
+            sd_list = utils.attach_spikedetector(nest, pop_list)
+
+            model_dic = utils.create_model_dictionary(N_tot_neurons, pop_names, BGs_class_i.BGs_pop_ids, sim_time)
+
+            tic = time.time()
+            nest.Simulate(sim_time)
+            toc = time.time()
+            print(f'Elapsed simulation time with {CORES} cores: {int((toc - tic) / 60)} min, {(toc - tic) % 60:.0f} sec')
+
+            potentials = utils.get_voltage_values(nest, vm_list, pop_names)
+            rasters = utils.get_spike_values(nest, sd_list, pop_names)
+
+            with open(f'{savings_dir}/model_dic', 'wb') as pickle_file:
+                pickle.dump(model_dic, pickle_file)
+            with open(f'{savings_dir}/potentials', 'wb') as pickle_file:
+                pickle.dump(potentials, pickle_file)
+            with open(f'{savings_dir}/rasters', 'wb') as pickle_file:
+                pickle.dump(rasters, pickle_file)
+
+        elif load_from_file:
+            print(f'Simulation results loaded from files')
+
+            with open(f'{savings_dir}/model_dic', 'rb') as pickle_file:
+                model_dic = pickle.load(pickle_file)
+            with open(f'{savings_dir}/potentials', 'rb') as pickle_file:
+                potentials = pickle.load(pickle_file)
+            with open(f'{savings_dir}/rasters', 'rb') as pickle_file:
+                rasters = pickle.load(pickle_file)
+
+        print(model_dic['pop_ids'])
+
+        #show results
+        import matplotlib.pyplot as plt
+        # fig1, ax1 = vsl.plot_potential_multiple(potentials, clms=1, t_start=start_time)
+        # # utils.add_spikes_to_potential(rasters, 4, ax1, -60, 15)
+        # # utils.add_spikes_to_potential(rasters, 3, ax1, -80, 40)
+        # fig1.show()
+
+        # fig2, ax2 = vsl.raster_plots_multiple(rasters, clms=1, start_stop_times=[0, sim_time], t_start=start_time)
+        # fig.show()
+
+        # ref_fr = {'slow': [[10, 0.01, 0.01, 0., 0., 25.9, 12.5, 20], [20, 2.0, 2.0, 0., 0., 25.9, 12.5, 35]],
+        #           'active': [[0., 0., 0., 0., 0., 0., 0.], [0., 0., 0., 33.7, 33.7, 15.0, 0.]]}
+
+        fr_stats = utils.calculate_fr_stats(rasters, model_dic['pop_ids'], t_start=start_time)
+        fig3, ax3 = vsl.firing_rate_histogram(fr_stats['fr'], fr_stats['name'], CV_list=fr_stats['CV'],
+                                  target_fr=np.array([0.,0.,0.,0.,9.30, 38.974,0., 12.092, 24.402]))
+        fig3.show()
+
+        if i == 0:
+            out = np.array([fr_stats['fr']])
+        else:
+            out = np.concatenate((out, np.array([fr_stats['fr']])), axis=0)
+
+    # print(out)
+
+    # target_values = out.mean(axis=0)
+    # std_values = out.std(axis=0)
+
+    # print(target_values)
+    # print(std_values)
